@@ -1,12 +1,50 @@
 package chip8
 
 import (
-	"fmt"
+	"context"
+	"math/rand"
+	"os"
 	"time"
+
+	"github.com/rs/zerolog/log"
 )
 
 // clock chip-8 approximately has 500Hz clock. ~ 0.12s
 var clock = time.Tick(120 * time.Millisecond)
+
+var (
+	fonts = []byte{
+		0xF0, 0x90, 0x90, 0x90, 0xF0, // 0
+		0x20, 0x60, 0x20, 0x20, 0x70, // 1
+		0xF0, 0x10, 0xF0, 0x80, 0xF0, // 2
+		0xF0, 0x10, 0xF0, 0x10, 0xF0, // 3
+		0x90, 0x90, 0xF0, 0x10, 0x10, // 4
+		0xF0, 0x80, 0xF0, 0x10, 0xF0, // 5
+		0xF0, 0x80, 0xF0, 0x90, 0xF0, // 6
+		0xF0, 0x10, 0x20, 0x40, 0x40, // 7
+		0xF0, 0x90, 0xF0, 0x90, 0xF0, // 8
+		0xF0, 0x90, 0xF0, 0x10, 0xF0, // 9
+		0xF0, 0x90, 0xF0, 0x90, 0x90, // A
+		0xE0, 0x90, 0xE0, 0x90, 0xE0, // B
+		0xF0, 0x80, 0x80, 0x80, 0xF0, // C
+		0xE0, 0x90, 0x90, 0x90, 0xE0, // D
+		0xF0, 0x80, 0xF0, 0x80, 0xF0, // E
+		0xF0, 0x80, 0xF0, 0x80, 0x80, // F
+	}
+)
+
+func NewCPU() *CPU {
+	cpu := &CPU{
+		PC:      0x200,
+		Display: DefaultDisplay(),
+	}
+	fontStartAddr := 0x050
+	for _, b := range fonts {
+		cpu.Memory[fontStartAddr] = b
+		fontStartAddr++
+	}
+	return cpu
+}
 
 type CPU struct {
 	// Memory will be accessed by The Chip-8. The Chip-8 language is capable of accessing up to 4KB (4,096 bytes) of RAM,
@@ -14,7 +52,7 @@ type CPU struct {
 	// The first 512 bytes, from 0x000 to 0x1FF, are where the original interpreter was located, and should not be used
 	// by programs. Most Chip-8 programs start at location 0x200 (512), but some begin at 0x600 (1536).
 	// All instructions are 2 bytes long and are stored most-significant-byte first
-	Memory [4096]uint16
+	Memory [4096]uint8
 
 	// V is 16 general purpose 8-bit registers, usually referred to as Vx, where x is a hexadecimal digit (0 through F)
 	V [16]uint8
@@ -23,7 +61,7 @@ type CPU struct {
 	I uint16
 
 	// The VF register should not be used by any program, as it is used as a flag by some instructions.
-	VF uint8
+	// VF uint8
 
 	// Chip-8 also has two special purpose 8-bit registers, for the delay and sound timers.
 	// When these registers are non-zero, they are automatically decremented at a rate of 60Hz
@@ -40,98 +78,146 @@ type CPU struct {
 	// finished with a subroutine.
 	// Chip-8 allows for up to 16 levels of nested subroutines.
 	Stack [16]uint16
+
+	Display *Display
 }
 
-func (c *CPU) Start() {
+func (c *CPU) LoadProgram(path string) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
 
+	buf := make([]byte, 4096)
+	n, err := f.Read(buf)
+	if err != nil {
+		return err
+	}
+
+	for i := 0; i < n; i++ {
+		c.Memory[c.PC+uint16(i)] = buf[i]
+	}
+
+	return nil
 }
 
-func (c *CPU) Execute(instruction uint16) {
+func (c *CPU) Start(ctx context.Context) {
+	for {
+		select {
+		case <-clock:
+			instruction := c.Fetch()
+			c.DecodeAndExecute(instruction)
+		case <-ctx.Done():
+			log.Info().Msgf("stopping cpu")
+			return
+		}
+	}
+}
+
+func (c *CPU) Fetch() uint16 {
+	msb := c.Memory[c.PC]
+	lsb := c.Memory[c.PC+1]
+	c.PC += 2
+	return uint16(msb)<<8 | uint16(lsb)
+}
+
+func (c *CPU) DecodeAndExecute(instruction uint16) {
 	msb := (instruction & 0xF000) >> 12
+	nnn := ((instruction << 4) & 0xFFFF) >> 4
+	kk := instruction & 0x00FF
+	n := instruction & 0x000F
+	x := (instruction & 0x0F00) >> 8
+	y := (instruction & 0x00F0) >> 4
+
 	switch msb {
 	case 0x0:
 		switch ((instruction & 0x0FFF) << 4) >> 4 {
 		case 0x0E0:
-			fmt.Println("00E0 - CLS")
+			c.clearScreen()
 		case 0x0EE:
-			fmt.Println("00EE - RET")
+			c.ret()
 		}
 	case 0x1:
-		fmt.Println("1nnn - JP addr")
+		c.jump(nnn)
 	case 0x2:
-		fmt.Println("2nnn - CALL addr")
+		c.call(nnn)
 	case 0x3:
-		fmt.Println("3xkk - SE Vx, byte")
+		c.skipIfEqual(uint8(x), uint8(kk))
 	case 0x4:
-		fmt.Println("4xkk - SNE Vx, byte")
+		c.skipIfNotEqual(uint8(x), uint8(kk))
 	case 0x5:
-		fmt.Println("5xy0 - SE Vx, Vy")
+		lsb := instruction & 0x000F
+		if lsb == 0 {
+			c.compareReg(uint8(x), uint8(y))
+		}
 	case 0x6:
-		fmt.Println("6xkk - LD Vx, byte")
+		c.setValue(uint8(x), uint8(kk))
 	case 0x7:
-		fmt.Println("7xkk - ADD Vx, byte")
+		c.addValue(uint8(x), uint8(kk))
 	case 0x8:
 		switch ((instruction & 0x000F) << 12) >> 12 {
 		case 0x0:
-			fmt.Println("8xy0 - LD Vx, Vy")
+			c.store(uint8(x), uint8(y))
 		case 0x1:
-			fmt.Println("8xy1 - OR Vx, Vy")
+			c.or(uint8(x), uint8(y))
 		case 0x2:
-			fmt.Println("8xy2 - AND Vx, Vy")
+			c.and(uint8(x), uint8(y))
 		case 0x3:
-			fmt.Println("8xy3 - XOR Vx, Vy")
+			c.xor(uint8(x), uint8(y))
 		case 0x4:
-			fmt.Println("8xy4 - ADD Vx, Vy")
+			c.sum(uint8(x), uint8(y))
 		case 0x5:
-			fmt.Println("8xy5 - SUB Vx, Vy")
+			c.sub(uint8(x), uint8(y))
 		case 0x6:
-			fmt.Println("8xy6 - SHR Vx {, Vy}")
+			c.shr(uint8(x))
 		case 0x7:
-			fmt.Println("8xy7 - SUBN Vx, Vy")
+			c.subn(uint8(x), uint8(y))
 		case 0xE:
-			fmt.Println("8xyE - SHL Vx {, Vy}")
+			c.shl(uint8(x))
 		default:
 			panic("instruction not recognized")
 		}
 	case 0x9:
-		fmt.Println("9xy0 - SNE Vx, Vy")
+		c.sne(uint8(x), uint8(y))
 	case 0xA:
-		fmt.Println("Annn - LD I, addr")
+		c.setI(nnn)
 	case 0xB:
-		fmt.Println("Bnnn - JP V0, addr")
+		c.jumpFromV0(nnn)
 	case 0xC:
-		fmt.Println("Cxkk - RND Vx, byte")
+		c.rnd(uint8(x), uint8(kk))
 	case 0xD:
-		fmt.Println("Dxyn - DRW Vx, Vy, nibble")
+		c.drw(uint8(x), uint8(y), uint8(n))
+
 	case 0xE:
 		switch ((instruction & 0x00FF) << 8) >> 8 {
 		case 0x9E:
-			fmt.Println("Ex9E - SKP Vx")
+			log.Debug().Msgf("Ex9E - SKP Vx")
 		case 0xA1:
-			fmt.Println("ExA1 - SKNP Vx")
+			log.Debug().Msgf("ExA1 - SKNP Vx")
 		default:
 			panic("instruction not recognized")
 		}
 	case 0xF:
 		switch ((instruction & 0x00FF) << 8) >> 8 {
 		case 0x07:
-			fmt.Println("Fx07 - LD Vx, DT")
+			log.Debug().Msgf("Fx07 - LD Vx, DT")
 		case 0x0A:
-			fmt.Println("Fx0A - LD Vx, K")
+			log.Debug().Msgf("Fx0A - LD Vx, K")
 		case 0x15:
-			fmt.Println("Fx15 - LD DT, Vx")
+			log.Debug().Msgf("Fx15 - LD DT, Vx")
 		case 0x18:
-			fmt.Println("Fx18 - LD ST, Vx")
+			log.Debug().Msgf("Fx18 - LD ST, Vx")
 		case 0x1E:
-			fmt.Println("Fx1E - ADD I, Vx")
+			log.Debug().Msgf("Fx1E - ADD I, Vx")
 		case 0x29:
-			fmt.Println("Fx29 - LD F, Vx")
+			log.Debug().Msgf("Fx29 - LD F, Vx")
 		case 0x33:
-			fmt.Println("Fx33 - LD B, Vx")
+			log.Debug().Msgf("Fx33 - LD B, Vx")
 		case 0x55:
-			fmt.Println("Fx55 - LD [I], Vx")
+			log.Debug().Msgf("Fx55 - LD [I], Vx")
 		case 0x65:
-			fmt.Println("Fx65 - LD Vx, [I]")
+			log.Debug().Msgf("Fx65 - LD Vx, [I]")
 		default:
 			panic("instruction not recognized")
 		}
@@ -139,4 +225,271 @@ func (c *CPU) Execute(instruction uint16) {
 		panic("instruction not recognized")
 	}
 
+}
+
+// clearScreen Clear the display.
+// 00E0 - CLS
+func (c *CPU) clearScreen() {
+	log.Debug().Msgf("00E0 - CLS")
+	c.Display.Clear()
+}
+
+// ret Returns from a subroutine.
+// The interpreter sets the program counter to the address at the top of the stack,
+// then subtracts 1 from the stack pointer.
+// 00EE - RET
+func (c *CPU) ret() {
+	log.Debug().Msgf("00EE - RET")
+	c.Stack[c.SP] = c.PC
+	c.SP--
+}
+
+// Jump to location nnn.
+// The interpreter sets the program counter to nnn.
+// 1nnn - JP addr
+func (c *CPU) jump(addr uint16) {
+	log.Debug().Msgf("1nnn - JP addr")
+	c.PC = addr
+}
+
+// call Calls subroutine at nnn.
+// The interpreter increments the stack pointer, then puts the current PC on the top of the stack.
+// The PC is then setValue to nnn.
+// 2nnn - CALL addr
+func (c *CPU) call(addr uint16) {
+	log.Debug().Msgf("2nnn - CALL addr")
+	c.SP++
+	c.Stack[c.SP] = c.PC
+	c.PC = addr
+}
+
+// skipIfEqual Skip next instruction if Vx = kk.
+// The interpreter compares register Vx to kk, and if they are equal, increments the program counter by 2.
+// 3xkk - SE Vx, byte
+func (c *CPU) skipIfEqual(regAddr uint8, val uint8) {
+	log.Debug().Msgf("3xkk - SE Vx, byte")
+	if c.V[regAddr] == val {
+		c.PC += 2
+	}
+}
+
+// skipIfNotEqual Skips next instruction if Vx != kk.
+// The interpreter compares register Vx to kk, and if they are not equal, increments the program counter by 2.
+// 4xkk - SNE Vx, byte
+func (c *CPU) skipIfNotEqual(regAddr uint8, val uint8) {
+	log.Debug().Msgf("4xkk - SNE Vx, byte")
+	if c.V[regAddr] != val {
+		c.PC += 2
+	}
+}
+
+// compareReg Skips next instruction if Vx = Vy.
+// The interpreter compares register Vx to register Vy, and if they are equal,
+// increments the program counter by 2.
+// 5xy0 - SE Vx, Vy
+func (c *CPU) compareReg(xRegAddr, yRegAddr uint8) {
+	log.Debug().Msgf("5xy0 - SE Vx, Vy")
+	if c.V[xRegAddr] == c.V[yRegAddr] {
+		c.PC += 2
+	}
+}
+
+// setValue Sets Vx = kk.
+// The interpreter puts the value kk into register Vx.
+// 6xkk - LD Vx, byte
+func (c *CPU) setValue(regAddr, val uint8) {
+	log.Debug().Msgf("6xkk - LD Vx, byte")
+	c.V[regAddr] = val
+}
+
+// Set Vx = Vx + kk.
+// Adds the value kk to the value of register Vx, then stores the result in Vx.
+// 7xkk - ADD Vx, byte
+func (c *CPU) addValue(regAddr, val uint8) {
+	log.Debug().Msgf("7xkk - ADD Vx, byte")
+	c.V[regAddr] += val
+}
+
+// Set Vx = Vy.
+// Stores the value of register Vy in register Vx.
+// 8xy0 - LD Vx, Vy
+func (c *CPU) store(destAddr, srcAddr uint8) {
+	log.Debug().Msgf("8xy0 - LD Vx, Vy")
+	c.V[destAddr] = c.V[srcAddr]
+}
+
+// Set Vx = Vx OR Vy.
+// Performs a bitwise OR on the values of Vx and Vy, then stores the result in Vx.
+// A bitwise OR compares the corresponding bits from two values, and if either bit is 1,
+// then the same bit in the result is also 1. Otherwise, it is 0.
+// 8xy1 - OR Vx, Vy
+func (c *CPU) or(xRegAddr, yRegAddr uint8) {
+	log.Debug().Msgf("8xy1 - OR Vx, Vy")
+	c.V[xRegAddr] |= c.V[yRegAddr]
+}
+
+// Set Vx = Vx AND Vy.
+// Performs a bitwise AND on the values of Vx and Vy, then stores the result in Vx.
+// A bitwise AND compares the corrseponding bits from two values, and if both bits are 1, then the same
+// bit in the result is also 1. Otherwise, it is 0.
+// 8xy2 - AND Vx, Vy
+func (c *CPU) and(xRegAddr, yRegAddr uint8) {
+	log.Debug().Msgf("8xy2 - AND Vx, Vy")
+	c.V[xRegAddr] &= c.V[yRegAddr]
+}
+
+// Set Vx = Vx XOR Vy.
+// Performs a bitwise exclusive OR on the values of Vx and Vy, then stores the result in Vx.
+// An exclusive OR compares the corrseponding bits from two values, and if the bits are not both
+// the same, then the corresponding bit in the result is setValue to 1. Otherwise, it is 0.
+// 8xy3 - XOR Vx, Vy
+func (c *CPU) xor(xRegAddr, yRegAddr uint8) {
+	log.Debug().Msgf("8xy3 - XOR Vx, Vy")
+	c.V[xRegAddr] ^= c.V[yRegAddr]
+}
+
+// Set Vx = Vx + Vy, setValue VF = carry.
+// The values of Vx and Vy are added together. If the result is greater than 8 bits (i.e., > 255,)
+// VF is setValue to 1, otherwise 0.
+// Only the lowest 8 bits of the result are kept, and stored in Vx.
+// 8xy4 - ADD Vx, Vy
+func (c *CPU) sum(xRegAddr, yRegAddr uint8) {
+	log.Debug().Msgf("8xy4 - ADD Vx, Vy")
+	// TODO use 8-bit cary ripple adder
+	sum := uint16(c.V[xRegAddr]) + uint16(c.V[yRegAddr])
+	if sum > 255 {
+		c.V[xRegAddr] = 0xFF
+		c.V[0xF] = 1
+	} else {
+		c.V[xRegAddr] = uint8(sum)
+		c.V[0xF] = 0
+	}
+}
+
+// Set Vx = Vx - Vy, set VF = NOT borrow.
+// If Vx > Vy, then VF is set to 1, otherwise 0. Then Vy is subtracted from Vx,
+// and the results stored in Vx.
+// 8xy5 - SUB Vx, Vy
+func (c *CPU) sub(xRegAddr, yRegAddr uint8) {
+	log.Debug().Msgf("8xy5 - SUB Vx, Vy")
+	if c.V[xRegAddr] > c.V[yRegAddr] {
+		c.V[0xF] = 1
+	} else {
+		c.V[0xF] = 0
+	}
+	c.V[xRegAddr] -= c.V[yRegAddr]
+}
+
+// Set Vx = Vx SHR 1.
+// If the least-significant bit of Vx is 1, then VF is set to 1, otherwise 0.
+// Then Vx is divided by 2.
+// 8xy6 - SHR Vx {, Vy}
+func (c *CPU) shr(addr uint8) {
+	log.Debug().Msgf("8xy6 - SHR Vx {, Vy}")
+	c.V[0xF] = c.V[addr] & 0x01
+	c.V[addr] = c.V[addr] >> 1
+}
+
+// Set Vx = Vy - Vx, set VF = NOT borrow.
+// If Vy > Vx, then VF is set to 1, otherwise 0.
+// Then Vx is subtracted from Vy, and the results stored in Vx.
+// 8xy7 - SUBN Vx, Vy
+func (c *CPU) subn(xRegAddr, yRegAddr uint8) {
+	log.Debug().Msgf("8xy7 - SUBN Vx, Vy")
+	if c.V[yRegAddr] > c.V[xRegAddr] {
+		c.V[0xF] = 1
+	} else {
+		c.V[0xF] = 0
+	}
+	c.V[xRegAddr] = c.V[yRegAddr] - c.V[xRegAddr]
+}
+
+// Set Vx = Vx SHL 1.
+// If the most-significant bit of Vx is 1, then VF is set to 1, otherwise to 0.
+// Then Vx is multiplied by 2.
+// 8xyE - SHL Vx {, Vy}
+func (c *CPU) shl(addr uint8) {
+	log.Debug().Msgf("8xyE - SHL Vx {, Vy}")
+	c.V[0xF] = (c.V[addr] & 0x80) >> 7
+	c.V[addr] = c.V[addr] << 1
+}
+
+// Skip next instruction if Vx != Vy.
+// The values of Vx and Vy are compared, and if they are not equal,
+// the program counter is increased by 2.
+// 9xy0 - SNE Vx, Vy
+func (c *CPU) sne(xRegAddr, yRegAddr uint8) {
+	log.Debug().Msgf("9xy0 - SNE Vx, Vy")
+	if c.V[xRegAddr] != c.V[yRegAddr] {
+		c.PC += 2
+	}
+}
+
+// Set I = nnn.
+// The value of register I is set to nnn.
+// Annn - LD I, addr
+func (c *CPU) setI(addr uint16) {
+	log.Debug().Msgf("Annn - LD I, addr")
+	c.I = addr
+}
+
+// Jump to location nnn + V0.
+// The program counter is set to nnn plus the value of V0.
+// Bnnn - JP V0, addr
+func (c *CPU) jumpFromV0(addr uint16) {
+	log.Debug().Msgf("Bnnn - JP V0, addr")
+	c.PC = uint16(c.V[0x0]) + addr
+}
+
+// Set Vx = random byte AND kk.
+// The interpreter generates a random number from 0 to 255, which is then ANDed with the value kk.
+// The results are stored in Vx.
+// See instruction 8xy2 for more information on AND.
+// Cxkk - RND Vx, byte
+func (c *CPU) rnd(addr uint8, val uint8) {
+	log.Debug().Msgf("Cxkk - RND Vx, byte")
+	num := uint8(rand.Intn(256))
+	c.V[addr] = num & val
+}
+
+// Display n-byte sprite starting at memory location I at (Vx, Vy), set VF = collision.
+// The interpreter reads n bytes from memory, starting at the address stored in I.
+// These bytes are then displayed as sprites on screen at coordinates (Vx, Vy).
+// Sprites are XORed onto the existing screen. If this causes any pixels to be erased, VF is set to 1,
+// otherwise it is set to 0. If the sprite is positioned so part of it is outside the coordinates of the display,
+// it wraps around to the opposite side of the screen.
+// See instruction 8xy3 for more information on XOR, and section 2.4, Display, for more information on the Chip-8
+// screen and sprites.
+// Dxyn - DRW Vx, Vy, nibble
+func (c *CPU) drw(xRegAddr, yRegAddr, nibble uint8) {
+	log.Debug().Msgf("Dxyn - DRW Vx, Vy, nibble")
+	maxX := c.Display.W - 1
+	maxY := c.Display.H - 1
+
+	x := c.V[xRegAddr] % maxX
+	y := c.V[yRegAddr] % maxY
+	c.V[0xF] = 0
+
+	for i := 0; i < int(nibble); i++ {
+		nthByte := c.Memory[c.I+uint16(i)]
+		for j := 7; j >= 0; j-- {
+
+			screenX := x + uint8(7-j)
+			screenY := y + uint8(i)
+
+			spritePixel := (nthByte >> j) & 0x01
+			screenPixel := c.Display.GetPixel(screenX, screenY)
+
+			if screenX > maxX || screenY > maxY {
+				continue
+			}
+
+			newVal := spritePixel ^ screenPixel
+			if spritePixel == 1 && screenPixel == 1 {
+				c.V[0xF] = 1
+			}
+			c.Display.SetPixel(screenX, screenY, newVal)
+		}
+	}
+	c.Display.Draw()
 }
