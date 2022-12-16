@@ -1,6 +1,9 @@
 package chip8
 
-import "time"
+import (
+	"fmt"
+	"time"
+)
 
 // clock chip-8 approximately has 500Hz clock. ~ 0.12s
 var clock = time.Tick(120 * time.Millisecond)
@@ -37,4 +40,103 @@ type CPU struct {
 	// finished with a subroutine.
 	// Chip-8 allows for up to 16 levels of nested subroutines.
 	Stack [16]uint16
+}
+
+func (c *CPU) Start() {
+
+}
+
+func (c *CPU) Execute(instruction uint16) {
+	msb := (instruction & 0xF000) >> 12
+	switch msb {
+	case 0x0:
+		switch ((instruction & 0x0FFF) << 4) >> 4 {
+		case 0x0E0:
+			fmt.Println("00E0 - CLS")
+		case 0x0EE:
+			fmt.Println("00EE - RET")
+		}
+	case 0x1:
+		fmt.Println("1nnn - JP addr")
+	case 0x2:
+		fmt.Println("2nnn - CALL addr")
+	case 0x3:
+		fmt.Println("3xkk - SE Vx, byte")
+	case 0x4:
+		fmt.Println("4xkk - SNE Vx, byte")
+	case 0x5:
+		fmt.Println("5xy0 - SE Vx, Vy")
+	case 0x6:
+		fmt.Println("6xkk - LD Vx, byte")
+	case 0x7:
+		fmt.Println("7xkk - ADD Vx, byte")
+	case 0x8:
+		switch ((instruction & 0x000F) << 12) >> 12 {
+		case 0x0:
+			fmt.Println("8xy0 - LD Vx, Vy")
+		case 0x1:
+			fmt.Println("8xy1 - OR Vx, Vy")
+		case 0x2:
+			fmt.Println("8xy2 - AND Vx, Vy")
+		case 0x3:
+			fmt.Println("8xy3 - XOR Vx, Vy")
+		case 0x4:
+			fmt.Println("8xy4 - ADD Vx, Vy")
+		case 0x5:
+			fmt.Println("8xy5 - SUB Vx, Vy")
+		case 0x6:
+			fmt.Println("8xy6 - SHR Vx {, Vy}")
+		case 0x7:
+			fmt.Println("8xy7 - SUBN Vx, Vy")
+		case 0xE:
+			fmt.Println("8xyE - SHL Vx {, Vy}")
+		default:
+			panic("instruction not recognized")
+		}
+	case 0x9:
+		fmt.Println("9xy0 - SNE Vx, Vy")
+	case 0xA:
+		fmt.Println("Annn - LD I, addr")
+	case 0xB:
+		fmt.Println("Bnnn - JP V0, addr")
+	case 0xC:
+		fmt.Println("Cxkk - RND Vx, byte")
+	case 0xD:
+		fmt.Println("Dxyn - DRW Vx, Vy, nibble")
+	case 0xE:
+		switch ((instruction & 0x00FF) << 8) >> 8 {
+		case 0x9E:
+			fmt.Println("Ex9E - SKP Vx")
+		case 0xA1:
+			fmt.Println("ExA1 - SKNP Vx")
+		default:
+			panic("instruction not recognized")
+		}
+	case 0xF:
+		switch ((instruction & 0x00FF) << 8) >> 8 {
+		case 0x07:
+			fmt.Println("Fx07 - LD Vx, DT")
+		case 0x0A:
+			fmt.Println("Fx0A - LD Vx, K")
+		case 0x15:
+			fmt.Println("Fx15 - LD DT, Vx")
+		case 0x18:
+			fmt.Println("Fx18 - LD ST, Vx")
+		case 0x1E:
+			fmt.Println("Fx1E - ADD I, Vx")
+		case 0x29:
+			fmt.Println("Fx29 - LD F, Vx")
+		case 0x33:
+			fmt.Println("Fx33 - LD B, Vx")
+		case 0x55:
+			fmt.Println("Fx55 - LD [I], Vx")
+		case 0x65:
+			fmt.Println("Fx65 - LD Vx, [I]")
+		default:
+			panic("instruction not recognized")
+		}
+	default:
+		panic("instruction not recognized")
+	}
+
 }
