@@ -29,9 +29,11 @@ func main() {
 	}()
 
 	c := chip8.NewCPU()
-	// c.LoadProgram("examples/IBM_Logo.ch8")
-	c.LoadProgram("examples/test_opcode.ch8")
+	c.LoadProgram("examples/IBM_Logo.ch8")
+	// c.LoadProgram("examples/test_opcode.ch8")
 	c.Start(ctx)
+
+	// c.Display.Draw()
 
 	// c.DecodeAndExecute(0x60FF)
 	// c.DecodeAndExecute(0x6101)
