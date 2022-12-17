@@ -2,15 +2,13 @@ package chip8
 
 import (
 	"context"
+	"math"
 	"math/rand"
 	"os"
 	"time"
 
 	"github.com/rs/zerolog/log"
 )
-
-// clock chip-8 approximately has 500Hz clock. ~ 0.12s
-var clock = time.Tick(2 * time.Millisecond)
 
 var (
 	fonts = []byte{
@@ -33,11 +31,20 @@ var (
 	}
 )
 
+const (
+	// clockDuration = 2 * time.Millisecond
+	clockFrequency = 500 // Hz
+	timerFrequency = 60
+)
+
 func NewCPU() *CPU {
+	clockDuration := math.Round(float64(1) / float64(clockFrequency) * 1000)
+
 	cpu := &CPU{
 		PC:       0x200,
 		Display:  DefaultDisplay(),
 		Keyboard: &Keyboard{},
+		clock:    time.NewTicker(time.Duration(clockDuration) * time.Millisecond),
 	}
 	fontStartAddr := 0x050
 	for _, b := range fonts {
@@ -66,8 +73,8 @@ type CPU struct {
 
 	// Chip-8 also has two special purpose 8-bit registers, for the delay and sound timers.
 	// When these registers are non-zero, they are automatically decremented at a rate of 60Hz
-	DelayTimer uint8
-	SoundTimer uint8
+	DT uint8
+	ST uint8
 
 	// The program counter (PC) should be 16-bit, and is used to store the currently executing address
 	PC uint16
@@ -83,6 +90,8 @@ type CPU struct {
 	Display *Display
 
 	Keyboard *Keyboard
+
+	clock *time.Ticker
 }
 
 func (c *CPU) LoadProgram(path string) error {
@@ -101,18 +110,33 @@ func (c *CPU) LoadProgram(path string) error {
 	for i := 0; i < n; i++ {
 		c.Memory[c.PC+uint16(i)] = buf[i]
 	}
-
 	return nil
 }
 
 func (c *CPU) Start(ctx context.Context) {
+
+	step := 0
+	count := int(math.Round(float64(clockFrequency) / float64(timerFrequency)))
+
 	for {
 		select {
-		case <-clock:
+		case <-c.clock.C:
 			instruction := c.Fetch()
 			c.DecodeAndExecute(instruction)
+			if step == count {
+				if c.DT > 0 {
+					c.DT--
+				}
+				if c.ST > 0 {
+					c.ST--
+				}
+				step = 0
+			} else {
+				step++
+			}
 		case <-ctx.Done():
-			log.Info().Msgf("stopping cpu")
+			log.Info().Msgf("stopping")
+			c.clock.Stop()
 			return
 		}
 	}
@@ -517,12 +541,12 @@ func (c *CPU) skipIfKeyNotPressed(addr uint8) {
 	}
 }
 
-// Set Vx = delay timer value.
+// Set Vx = delay delayTimer value.
 // The value of DT is placed into Vx.
 // Fx07 - LD Vx, DT
 func (c *CPU) storeDelayTimerToRegister(addr uint8) {
 	log.Debug().Msgf("ExA1 - SKNP Vx")
-	c.V[addr] = c.DelayTimer
+	c.V[addr] = c.DT
 }
 
 // Wait for a key press, store the value of the key in Vx.
@@ -534,20 +558,20 @@ func (c *CPU) waitKeyPressedAndStoreToRegister(addr uint8) {
 	c.V[addr] = key
 }
 
-// Set delay timer = Vx.
+// Set delay delayTimer = Vx.
 // DT is set equal to the value of Vx.
 // Fx15 - LD DT, Vx
 func (c *CPU) setDelayTimerFromRegister(addr uint8) {
 	log.Debug().Msgf("Fx15 - LD DT, Vx")
-	c.DelayTimer = c.V[addr]
+	c.DT = c.V[addr]
 }
 
-// Set sound timer = Vx.
+// Set sound delayTimer = Vx.
 // ST is set equal to the value of Vx.
 // Fx18 - LD ST, Vx
 func (c *CPU) setSoundTimerFromRegister(addr uint8) {
 	log.Debug().Msgf("Fx18 - LD ST, Vx")
-	c.SoundTimer = c.V[addr]
+	c.ST = c.V[addr]
 }
 
 // Set I = I + Vx.
