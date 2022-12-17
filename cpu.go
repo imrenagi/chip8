@@ -10,7 +10,7 @@ import (
 )
 
 // clock chip-8 approximately has 500Hz clock. ~ 0.12s
-var clock = time.Tick(120 * time.Millisecond)
+var clock = time.Tick(2 * time.Millisecond)
 
 var (
 	fonts = []byte{
@@ -35,8 +35,9 @@ var (
 
 func NewCPU() *CPU {
 	cpu := &CPU{
-		PC:      0x200,
-		Display: DefaultDisplay(),
+		PC:       0x200,
+		Display:  DefaultDisplay(),
+		Keyboard: &Keyboard{},
 	}
 	fontStartAddr := 0x050
 	for _, b := range fonts {
@@ -65,8 +66,8 @@ type CPU struct {
 
 	// Chip-8 also has two special purpose 8-bit registers, for the delay and sound timers.
 	// When these registers are non-zero, they are automatically decremented at a rate of 60Hz
-	Delay      uint8
-	SoundTimes uint8
+	DelayTimer uint8
+	SoundTimer uint8
 
 	// The program counter (PC) should be 16-bit, and is used to store the currently executing address
 	PC uint16
@@ -80,6 +81,8 @@ type CPU struct {
 	Stack [16]uint16
 
 	Display *Display
+
+	Keyboard *Keyboard
 }
 
 func (c *CPU) LoadProgram(path string) error {
@@ -188,36 +191,35 @@ func (c *CPU) DecodeAndExecute(instruction uint16) {
 		c.rnd(uint8(x), uint8(kk))
 	case 0xD:
 		c.drw(uint8(x), uint8(y), uint8(n))
-
 	case 0xE:
 		switch ((instruction & 0x00FF) << 8) >> 8 {
 		case 0x9E:
-			log.Debug().Msgf("Ex9E - SKP Vx")
+			c.skipIfKeyPressed(uint8(x))
 		case 0xA1:
-			log.Debug().Msgf("ExA1 - SKNP Vx")
+			c.skipIfKeyNotPressed(uint8(x))
 		default:
 			panic("instruction not recognized")
 		}
 	case 0xF:
 		switch ((instruction & 0x00FF) << 8) >> 8 {
 		case 0x07:
-			log.Debug().Msgf("Fx07 - LD Vx, DT")
+			c.storeDelayTimerToRegister(uint8(x))
 		case 0x0A:
-			log.Debug().Msgf("Fx0A - LD Vx, K")
+			c.waitKeyPressedAndStoreToRegister(uint8(x))
 		case 0x15:
-			log.Debug().Msgf("Fx15 - LD DT, Vx")
+			c.setDelayTimerFromRegister(uint8(x))
 		case 0x18:
-			log.Debug().Msgf("Fx18 - LD ST, Vx")
+			c.setSoundTimerFromRegister(uint8(x))
 		case 0x1E:
-			log.Debug().Msgf("Fx1E - ADD I, Vx")
+			c.addIWithV(uint8(x))
 		case 0x29:
-			log.Debug().Msgf("Fx29 - LD F, Vx")
+			c.setIWithSpriteLocationOfRegisterVal(uint8(x))
 		case 0x33:
-			log.Debug().Msgf("Fx33 - LD B, Vx")
+			c.storeBCD(uint8(x))
 		case 0x55:
-			log.Debug().Msgf("Fx55 - LD [I], Vx")
+			c.storeVRegisterToMemory(uint8(x))
 		case 0x65:
-			log.Debug().Msgf("Fx65 - LD Vx, [I]")
+			c.loadMemoryToVRegister(uint8(x))
 		default:
 			panic("instruction not recognized")
 		}
@@ -492,4 +494,115 @@ func (c *CPU) drw(xRegAddr, yRegAddr, nibble uint8) {
 		}
 	}
 	c.Display.Draw()
+}
+
+// Skip next instruction if key with the value of Vx is pressed.
+// Checks the keyboard, and if the key corresponding to the value of Vx is currently in the down position, PC is increased by 2.
+// Ex9E - SKP Vx
+func (c *CPU) skipIfKeyPressed(addr uint8) {
+	log.Debug().Msgf("Ex9E - SKP Vx")
+	if c.Keyboard.IsPressed(c.V[addr]) {
+		c.PC += 2
+	}
+}
+
+// Skip next instruction if key with the value of Vx is not pressed.
+// Checks the keyboard, and if the key corresponding to the value of Vx is currently in the up position, PC is increased by 2.
+// ExA1 - SKNP Vx
+func (c *CPU) skipIfKeyNotPressed(addr uint8) {
+	log.Debug().Msgf("ExA1 - SKNP Vx")
+	if !c.Keyboard.IsPressed(c.V[addr]) {
+		c.PC += 2
+	}
+}
+
+// Set Vx = delay timer value.
+// The value of DT is placed into Vx.
+// Fx07 - LD Vx, DT
+func (c *CPU) storeDelayTimerToRegister(addr uint8) {
+	log.Debug().Msgf("ExA1 - SKNP Vx")
+	c.V[addr] = c.DelayTimer
+}
+
+// Wait for a key press, store the value of the key in Vx.
+// All execution stops until a key is pressed, then the value of that key is stored in Vx.
+// Fx0A - LD Vx, K
+func (c *CPU) waitKeyPressedAndStoreToRegister(addr uint8) {
+	log.Debug().Msgf("Fx0A - LD Vx, K")
+	key := <-c.Keyboard.PressedEventCh()
+	c.V[addr] = key
+}
+
+// Set delay timer = Vx.
+// DT is set equal to the value of Vx.
+// Fx15 - LD DT, Vx
+func (c *CPU) setDelayTimerFromRegister(addr uint8) {
+	log.Debug().Msgf("Fx15 - LD DT, Vx")
+	c.DelayTimer = c.V[addr]
+}
+
+// Set sound timer = Vx.
+// ST is set equal to the value of Vx.
+// Fx18 - LD ST, Vx
+func (c *CPU) setSoundTimerFromRegister(addr uint8) {
+	log.Debug().Msgf("Fx18 - LD ST, Vx")
+	c.SoundTimer = c.V[addr]
+}
+
+// Set I = I + Vx.
+// The values of I and Vx are added, and the results are stored in I.
+// Fx1E - ADD I, Vx
+func (c *CPU) addIWithV(addr uint8) {
+	log.Debug().Msgf("Fx1E - ADD I, Vx")
+	c.I += uint16(c.V[addr])
+}
+
+// Set I = location of sprite for digit Vx.
+// The value of I is set to the location for the hexadecimal sprite
+// corresponding to the value of Vx.
+// See section 2.4, Display, for more information on the Chip-8 hexadecimal font.
+// Fx29 - LD F, Vx
+func (c *CPU) setIWithSpriteLocationOfRegisterVal(addr uint8) {
+	log.Debug().Msgf("Fx29 - LD F, Vx")
+	key := c.V[addr] & 0x0F
+	c.I = 0x050 + uint16(key*5)
+}
+
+// Store BCD representation of Vx in memory locations I, I+1, and I+2.
+// The interpreter takes the decimal value of Vx, and places the hundreds digit
+// in memory at location in I, the tens digit at location I+1,
+// and the ones digit at location I+2.
+// Fx33 - LD B, Vx
+func (c *CPU) storeBCD(addr uint8) {
+	log.Debug().Msgf("Fx33 - LD B, Vx")
+	val := c.V[addr]
+
+	var iOffset uint16 = 2
+	for val != 0 {
+		modulo := val % 10
+		val = val / 10
+
+		c.Memory[c.I+iOffset] = modulo
+		iOffset--
+	}
+}
+
+// Store registers V0 through Vx in memory starting at location I.
+// The interpreter copies the values of registers V0 through Vx into memory, starting at the address in I.
+// Fx55 - LD [I], Vx
+func (c *CPU) storeVRegisterToMemory(maxAddr uint8) {
+	log.Debug().Msgf("Fx55 - LD [I], Vx")
+	for i := 0; i <= int(maxAddr); i++ {
+		c.Memory[c.I+uint16(i)] = c.V[i]
+	}
+}
+
+// Read registers V0 through Vx from memory starting at location I.
+// The interpreter reads values from memory starting at location I into registers V0 through Vx.
+// Fx65 - LD Vx, [I]
+func (c *CPU) loadMemoryToVRegister(maxAddr uint8) {
+	log.Debug().Msgf("Fx65 - LD Vx, [I]")
+	for i := 0; i <= int(maxAddr); i++ {
+		c.V[i] = c.Memory[c.I+uint16(i)]
+	}
 }
