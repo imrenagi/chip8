@@ -42,7 +42,8 @@ func NewCPU() *CPU {
 	timerDuration := math.Round(float64(1) / float64(timerFrequency) * 1000)
 
 	cpu := &CPU{
-		PC:       0x200,
+		PC: 0x200,
+		// SP:       255,
 		Display:  DefaultDisplay(),
 		Keyboard: &Keyboard{},
 		clock:    time.NewTicker(time.Duration(clockDuration) * time.Millisecond),
@@ -263,7 +264,7 @@ func (c *CPU) clearScreen() {
 // 00EE - RET
 func (c *CPU) ret() {
 	log.Debug().Msgf("00EE - RET")
-	c.Stack[c.SP] = c.PC
+	c.PC = c.Stack[c.SP]
 	c.SP--
 }
 
@@ -381,12 +382,11 @@ func (c *CPU) sum(xRegAddr, yRegAddr uint8) {
 	// TODO use 8-bit cary ripple adder
 	sum := uint16(c.V[xRegAddr]) + uint16(c.V[yRegAddr])
 	if sum > 255 {
-		c.V[xRegAddr] = 0xFF
 		c.V[0xF] = 1
 	} else {
-		c.V[xRegAddr] = uint8(sum)
 		c.V[0xF] = 0
 	}
+	c.V[xRegAddr] = uint8(sum)
 }
 
 // Set Vx = Vx - Vy, set VF = NOT borrow.
@@ -514,7 +514,7 @@ func (c *CPU) drw(xRegAddr, yRegAddr, nibble uint8) {
 			c.Display.SetPixel(screenX, screenY, newVal)
 		}
 	}
-	// c.Display.Draw()
+	c.Display.Draw()
 }
 
 // Skip next instruction if key with the value of Vx is pressed.

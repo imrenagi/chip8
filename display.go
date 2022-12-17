@@ -1,6 +1,8 @@
 package chip8
 
-import "fmt"
+import (
+	tm "github.com/buger/goterm"
+)
 
 func DefaultDisplay() *Display {
 	d := &Display{
@@ -8,7 +10,6 @@ func DefaultDisplay() *Display {
 		W: 64,
 	}
 	d.init()
-
 	return d
 }
 
@@ -31,6 +32,7 @@ func (d *Display) init() {
 
 func (d *Display) Clear() {
 	d.init()
+	tm.Clear()
 }
 
 func (d *Display) SetPixel(x, y uint8, val uint8) {
@@ -42,14 +44,18 @@ func (d *Display) GetPixel(x, y uint8) uint8 {
 }
 
 func (d *Display) Draw() {
-	for _, r := range d.data {
+	tm.MoveCursor(1, 1)
+
+	for rn, r := range d.data {
+		tm.Printf("%d\t", rn)
 		for _, c := range r {
 			if c > 0 {
-				fmt.Print("o")
+				tm.Print("o")
 			} else {
-				fmt.Print(" ")
+				tm.Print(" ")
 			}
 		}
-		fmt.Println()
+		tm.Println()
 	}
+	tm.Flush() // Call it every time at the end of rendering
 }
