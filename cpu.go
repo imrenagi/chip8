@@ -34,17 +34,19 @@ var (
 const (
 	// clockDuration = 2 * time.Millisecond
 	clockFrequency = 500 // Hz
-	timerFrequency = 60
+	timerFrequency = 60  // Hz
 )
 
 func NewCPU() *CPU {
 	clockDuration := math.Round(float64(1) / float64(clockFrequency) * 1000)
+	timerDuration := math.Round(float64(1) / float64(timerFrequency) * 1000)
 
 	cpu := &CPU{
 		PC:       0x200,
 		Display:  DefaultDisplay(),
 		Keyboard: &Keyboard{},
 		clock:    time.NewTicker(time.Duration(clockDuration) * time.Millisecond),
+		timer:    time.NewTicker(time.Duration(timerDuration) * time.Millisecond),
 	}
 	fontStartAddr := 0x050
 	for _, b := range fonts {
@@ -92,6 +94,7 @@ type CPU struct {
 	Keyboard *Keyboard
 
 	clock *time.Ticker
+	timer *time.Ticker
 }
 
 func (c *CPU) LoadProgram(path string) error {
@@ -114,29 +117,22 @@ func (c *CPU) LoadProgram(path string) error {
 }
 
 func (c *CPU) Start(ctx context.Context) {
-
-	step := 0
-	count := int(math.Round(float64(clockFrequency) / float64(timerFrequency)))
-
 	for {
 		select {
 		case <-c.clock.C:
 			instruction := c.Fetch()
 			c.DecodeAndExecute(instruction)
-			if step == count {
-				if c.DT > 0 {
-					c.DT--
-				}
-				if c.ST > 0 {
-					c.ST--
-				}
-				step = 0
-			} else {
-				step++
+		case <-c.timer.C:
+			if c.DT > 0 {
+				c.DT--
+			}
+			if c.ST > 0 {
+				c.ST--
 			}
 		case <-ctx.Done():
-			log.Info().Msgf("stopping")
 			c.clock.Stop()
+			c.timer.Stop()
+			log.Warn().Msg("cpu is stopped")
 			return
 		}
 	}
@@ -518,7 +514,7 @@ func (c *CPU) drw(xRegAddr, yRegAddr, nibble uint8) {
 			c.Display.SetPixel(screenX, screenY, newVal)
 		}
 	}
-	c.Display.Draw()
+	// c.Display.Draw()
 }
 
 // Skip next instruction if key with the value of Vx is pressed.
