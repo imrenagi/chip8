@@ -234,6 +234,7 @@ func (c *CPU) DecodeAndExecute(instruction uint16) {
 func (c *CPU) clearScreen() {
 	log.Debug().Msgf("00E0 - CLS")
 	c.Display.Clear()
+	c.Display.Draw()
 }
 
 // ret Returns from a subroutine.
