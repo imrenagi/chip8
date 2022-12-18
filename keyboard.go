@@ -56,7 +56,7 @@ func (k *key) observe() {
 		select {
 		case <-k.eventCh:
 			k.beingPressed = true
-		case <-time.After(1000 * time.Millisecond):
+		case <-time.After(200 * time.Millisecond):
 			k.beingPressed = false
 		case <-k.stopCh:
 			return
