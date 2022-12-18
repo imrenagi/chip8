@@ -1,25 +1,17 @@
 package chip8
 
 import (
-	"fmt"
-	"os"
-
 	"github.com/gdamore/tcell/v2"
 	"github.com/gdamore/tcell/v2/encoding"
 	"github.com/mattn/go-runewidth"
 	"github.com/rs/zerolog/log"
 )
 
-func DefaultDisplay() *Display {
-	tcellScreen, err := tcell.NewScreen()
-	if err != nil {
-		log.Fatal().Err(err).Msgf("cant get new tcell screen")
-	}
-
+func NewDisplay(drawer Drawer) *Display {
 	d := &Display{
-		H:      32,
-		W:      64,
-		drawer: NewTcellDisplay(tcellScreen),
+		H:      50,
+		W:      100,
+		drawer: drawer,
 	}
 	d.init()
 	return d
@@ -87,25 +79,11 @@ func NewTcellDisplay(screen tcell.Screen) *TcellDisplay {
 	screen.SetStyle(defStyle)
 	screen.Clear()
 
-	go func() {
-		for {
-			switch ev := screen.PollEvent().(type) {
-			case *tcell.EventResize:
-				screen.Sync()
-			case *tcell.EventKey:
-				if ev.Key() == tcell.KeyEscape {
-					screen.Fini()
-					os.Exit(0)
-				} else if ev.Key() == tcell.KeyRune {
-					fmt.Println("pressed", ev.Rune())
-				}
-			}
-		}
-	}()
-
-	return &TcellDisplay{
+	d := &TcellDisplay{
 		screen: screen,
 	}
+
+	return d
 }
 
 type TcellDisplay struct {
@@ -130,5 +108,5 @@ func (t *TcellDisplay) Clear() {
 }
 
 func (t *TcellDisplay) Draw() {
-	t.screen.Show()
+	t.screen.Sync()
 }

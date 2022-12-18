@@ -7,6 +7,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/gdamore/tcell/v2"
 	"github.com/rs/zerolog/log"
 )
 
@@ -41,11 +42,15 @@ func NewCPU() *CPU {
 	clockDuration := math.Round(float64(1) / float64(clockFrequency) * 1000)
 	timerDuration := math.Round(float64(1) / float64(timerFrequency) * 1000)
 
+	screen, err := tcell.NewScreen()
+	if err != nil {
+		log.Fatal().Err(err).Msgf("unable to create new tcell screen")
+	}
+
 	cpu := &CPU{
-		PC: 0x200,
-		// SP:       255,
-		Display:  DefaultDisplay(),
-		Keyboard: &Keyboard{},
+		PC:       0x200,
+		Display:  NewDisplay(NewTcellDisplay(screen)),
+		Keyboard: NewKeyboard(screen),
 		clock:    time.NewTicker(time.Duration(clockDuration) * time.Millisecond),
 		timer:    time.NewTicker(time.Duration(timerDuration) * time.Millisecond),
 	}
@@ -518,31 +523,25 @@ func (c *CPU) drw(xRegAddr, yRegAddr, nibble uint8) {
 }
 
 // Skip next instruction if key with the value of Vx is pressed.
-// Checks the keyboard, and if the key corresponding to the value of Vx is currently in the down position, PC is increased by 2.
+// Checks the keyboard, and if the key corresponding to the value of Vx is currently in the down position,
+// PC is increased by 2.
 // Ex9E - SKP Vx
 func (c *CPU) skipIfKeyPressed(addr uint8) {
 	log.Debug().Msgf("Ex9E - SKP Vx")
-	if c.Keyboard.IsPressed(c.V[addr]) {
+	if c.Keyboard.IsBeingPressed(c.V[addr]) {
 		c.PC += 2
 	}
 }
 
 // Skip next instruction if key with the value of Vx is not pressed.
-// Checks the keyboard, and if the key corresponding to the value of Vx is currently in the up position, PC is increased by 2.
+// Checks the keyboard, and if the key corresponding to the value of Vx is currently in the up position,
+// PC is increased by 2.
 // ExA1 - SKNP Vx
 func (c *CPU) skipIfKeyNotPressed(addr uint8) {
 	log.Debug().Msgf("ExA1 - SKNP Vx")
-	if !c.Keyboard.IsPressed(c.V[addr]) {
+	if !c.Keyboard.IsBeingPressed(c.V[addr]) {
 		c.PC += 2
 	}
-}
-
-// Set Vx = delay delayTimer value.
-// The value of DT is placed into Vx.
-// Fx07 - LD Vx, DT
-func (c *CPU) storeDelayTimerToRegister(addr uint8) {
-	log.Debug().Msgf("ExA1 - SKNP Vx")
-	c.V[addr] = c.DT
 }
 
 // Wait for a key press, store the value of the key in Vx.
@@ -552,6 +551,14 @@ func (c *CPU) waitKeyPressedAndStoreToRegister(addr uint8) {
 	log.Debug().Msgf("Fx0A - LD Vx, K")
 	key := <-c.Keyboard.PressedEventCh()
 	c.V[addr] = key
+}
+
+// Set Vx = delay delayTimer value.
+// The value of DT is placed into Vx.
+// Fx07 - LD Vx, DT
+func (c *CPU) storeDelayTimerToRegister(addr uint8) {
+	log.Debug().Msgf("ExA1 - SKNP Vx")
+	c.V[addr] = c.DT
 }
 
 // Set delay delayTimer = Vx.
