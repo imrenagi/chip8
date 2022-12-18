@@ -1,19 +1,25 @@
 package chip8
 
 import (
-	tm "github.com/buger/goterm"
+	"github.com/gdamore/tcell/v2"
+	"github.com/gdamore/tcell/v2/encoding"
+	"github.com/mattn/go-runewidth"
+	"github.com/rs/zerolog/log"
 )
 
-func DefaultDisplay() *Display {
+func NewDisplay(drawer Drawer) *Display {
 	d := &Display{
-		H: 32,
-		W: 64,
+		H:      50,
+		W:      100,
+		drawer: drawer,
 	}
 	d.init()
 	return d
 }
 
 type Display struct {
+	drawer Drawer
+
 	H, W uint8
 	data [][]uint8
 }
@@ -28,11 +34,11 @@ func (d *Display) init() {
 		row[r] = colums
 	}
 	d.data = row
+
 }
 
 func (d *Display) Clear() {
-	d.init()
-	tm.Clear()
+	d.drawer.Clear()
 }
 
 func (d *Display) SetPixel(x, y uint8, val uint8) {
@@ -44,18 +50,63 @@ func (d *Display) GetPixel(x, y uint8) uint8 {
 }
 
 func (d *Display) Draw() {
-	tm.MoveCursor(1, 1)
-
-	for rn, r := range d.data {
-		tm.Printf("%d\t", rn)
-		for _, c := range r {
+	d.drawer.Clear()
+	for y, r := range d.data {
+		for x, c := range r {
 			if c > 0 {
-				tm.Print("o")
-			} else {
-				tm.Print(" ")
+				d.drawer.SetPixel(x, y)
 			}
 		}
-		tm.Println()
 	}
-	tm.Flush() // Call it every time at the end of rendering
+	d.drawer.Draw()
+}
+
+type Drawer interface {
+	Clear()
+	SetPixel(x, y int)
+	Draw()
+}
+
+func NewTcellDisplay(screen tcell.Screen) *TcellDisplay {
+	encoding.Register()
+	if err := screen.Init(); err != nil {
+		log.Fatal().Msgf("not able to init screen")
+	}
+
+	defStyle := tcell.StyleDefault.
+		Background(tcell.ColorReset).
+		Foreground(tcell.ColorRed)
+	screen.SetStyle(defStyle)
+	screen.Clear()
+
+	d := &TcellDisplay{
+		screen: screen,
+	}
+
+	return d
+}
+
+type TcellDisplay struct {
+	screen tcell.Screen
+}
+
+func (t *TcellDisplay) SetPixel(x, y int) {
+	c := ' '
+	var comb []rune
+	w := runewidth.RuneWidth(c)
+	if w == 0 {
+		comb = []rune{c}
+		c = ' '
+		w = 1
+	}
+	t.screen.SetContent(x, y, c, comb,
+		tcell.StyleDefault.Background(tcell.ColorRed))
+}
+
+func (t *TcellDisplay) Clear() {
+	t.screen.Clear()
+}
+
+func (t *TcellDisplay) Draw() {
+	t.screen.Sync()
 }
