@@ -1,7 +1,6 @@
 package chip8
 
 import (
-	"fmt"
 	"sync"
 
 	"github.com/veandco/go-sdl2/sdl"
@@ -40,7 +39,7 @@ func NewKeyboard() *Keyboard {
 
 type Keyboard struct {
 	sync.Mutex
-	
+
 	keyState [16]bool
 
 	quitCh  chan struct{}
@@ -69,7 +68,6 @@ func (k *Keyboard) process(ev KeyEvent) {
 	if !ok {
 		return
 	}
-	fmt.Println(ev.Pressed, ev.ScanCode, idx)
 	if ev.Pressed {
 		k.keyState[idx] = true
 		select {

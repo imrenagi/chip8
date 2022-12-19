@@ -2,6 +2,7 @@ package chip8
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"math/rand"
 	"os"
@@ -38,22 +39,24 @@ const (
 	timerFrequency = 60  // Hz
 )
 
-func NewCPU(display *Display, keyboard *Keyboard) *CPU {
+func NewCPU(display *Display, keyboard *Keyboard, audio *AudioController) *CPU {
 	clockDuration := math.Round(float64(1) / float64(clockFrequency) * 1000)
 	timerDuration := math.Round(float64(1) / float64(timerFrequency) * 1000)
 
 	cpu := &CPU{
-		PC:       0x200,
-		Display:  display,
-		Keyboard: keyboard,
-		clock:    time.NewTicker(time.Duration(clockDuration) * time.Millisecond),
-		timer:    time.NewTicker(time.Duration(timerDuration) * time.Millisecond),
+		PC:              0x200,
+		Display:         display,
+		Keyboard:        keyboard,
+		AudioController: audio,
+		clock:           time.NewTicker(time.Duration(clockDuration) * time.Millisecond),
+		timer:           time.NewTicker(time.Duration(timerDuration) * time.Millisecond),
 	}
 	fontStartAddr := 0x050
 	for _, b := range fonts {
 		cpu.Memory[fontStartAddr] = b
 		fontStartAddr++
 	}
+
 	return cpu
 }
 
@@ -90,9 +93,9 @@ type CPU struct {
 	// Chip-8 allows for up to 16 levels of nested subroutines.
 	Stack [16]uint16
 
-	Display *Display
-
-	Keyboard *Keyboard
+	Display         *Display
+	Keyboard        *Keyboard
+	AudioController *AudioController
 
 	clock *time.Ticker
 	timer *time.Ticker
@@ -117,23 +120,34 @@ func (c *CPU) LoadProgram(path string) error {
 	return nil
 }
 
+func (c *CPU) LoadProgramBytes(program []byte) error {
+	for i, b := range program {
+		c.Memory[c.PC+uint16(i)] = b
+	}
+	return nil
+}
+
 func (c *CPU) Start(ctx context.Context) {
 	for {
 		select {
-		case <-c.clock.C:
-			instruction := c.Fetch()
-			c.DecodeAndExecute(instruction)
 		case <-c.timer.C:
 			if c.DT > 0 {
 				c.DT--
 			}
 			if c.ST > 0 {
+				c.AudioController.Start()
 				c.ST--
+			} else {
+				c.AudioController.Stop()
 			}
+		case <-c.clock.C:
+			instruction := c.Fetch()
+			c.DecodeAndExecute(instruction)
 		case <-ctx.Done():
 			c.clock.Stop()
 			c.timer.Stop()
 			c.Display.Stop()
+			c.AudioController.Destroy()
 			sdl.Quit()
 			log.Warn().Msg("cpu is stopped")
 			return
@@ -244,7 +258,7 @@ func (c *CPU) DecodeAndExecute(instruction uint16) {
 		case 0x65:
 			c.loadMemoryToVRegister(uint8(x))
 		default:
-			panic("instruction not recognized")
+			panic(fmt.Sprintf("instruction not recognized %x", instruction))
 		}
 	default:
 		panic("instruction not recognized")
@@ -324,7 +338,7 @@ func (c *CPU) compareReg(xRegAddr, yRegAddr uint8) {
 // The interpreter puts the value kk into register Vx.
 // 6xkk - LD Vx, byte
 func (c *CPU) setValue(regAddr, val uint8) {
-	log.Debug().Msgf("6xkk - LD Vx, byte")
+	log.Debug().Msgf("0x6xkk - LD Vx %x, byte %x", regAddr, val)
 	c.V[regAddr] = val
 }
 
@@ -554,7 +568,7 @@ func (c *CPU) waitKeyPressedAndStoreToRegister(addr uint8) {
 // The value of DT is placed into Vx.
 // Fx07 - LD Vx, DT
 func (c *CPU) storeDelayTimerToRegister(addr uint8) {
-	log.Debug().Msgf("ExA1 - SKNP Vx")
+	log.Info().Msgf("Fx07 - LD Vx, DT Vx 0x%x", addr)
 	c.V[addr] = c.DT
 }
 
@@ -562,7 +576,7 @@ func (c *CPU) storeDelayTimerToRegister(addr uint8) {
 // DT is set equal to the value of Vx.
 // Fx15 - LD DT, Vx
 func (c *CPU) setDelayTimerFromRegister(addr uint8) {
-	log.Debug().Msgf("Fx15 - LD DT, Vx")
+	log.Info().Msgf("Fx15 - LD DT, Vx 0x%x", addr)
 	c.DT = c.V[addr]
 }
 

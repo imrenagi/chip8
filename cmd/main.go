@@ -13,7 +13,7 @@ import (
 )
 
 func main() {
-	zerolog.SetGlobalLevel(zerolog.InfoLevel)
+	zerolog.SetGlobalLevel(zerolog.DebugLevel)
 	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stdout})
 
 	ctx := context.Background()
@@ -38,10 +38,13 @@ func main() {
 	c := chip8.NewCPU(
 		chip8.DefaultDisplay(),
 		keyboard,
+		chip8.NewAudioController(),
 	)
 	// c.LoadProgram("examples/IBM_Logo.ch8")
 	// c.LoadProgram("examples/keypad_test.ch8")
+	// c.LoadProgram("examples/chiptest.ch8")
 	c.LoadProgram("examples/c8games/TETRIS")
+	// c.LoadProgram("examples/delay_timer_test.ch8")
 	go c.Start(ctx)
 
 	running := true
