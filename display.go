@@ -9,8 +9,8 @@ import (
 
 func DefaultDisplay() *Display {
 	d := &Display{
-		H:      50,
-		W:      100,
+		H:      64,
+		W:      128,
 		drawer: NewSDLDisplay(),
 	}
 	d.init()
@@ -75,11 +75,10 @@ func NewSDLDisplay() *SDLDisplay {
 	window, err := sdl.CreateWindow("chip-8 emulator",
 		sdl.WINDOWPOS_UNDEFINED,
 		sdl.WINDOWPOS_UNDEFINED,
-		640, 320, sdl.WINDOW_SHOWN)
+		1280, 640, sdl.WINDOW_SHOWN)
 	if err != nil {
 		panic(err)
 	}
-	// defer window.Destroy()
 
 	surface, err := window.GetSurface()
 	if err != nil {

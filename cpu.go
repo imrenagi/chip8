@@ -34,7 +34,6 @@ var (
 )
 
 const (
-	// clockDuration = 2 * time.Millisecond
 	clockFrequency = 500 // Hz
 	timerFrequency = 60  // Hz
 )
@@ -395,7 +394,6 @@ func (c *CPU) xor(xRegAddr, yRegAddr uint8) {
 // 8xy4 - ADD Vx, Vy
 func (c *CPU) sum(xRegAddr, yRegAddr uint8) {
 	log.Debug().Msgf("8xy4 - ADD Vx, Vy")
-	// TODO use 8-bit cary ripple adder
 	sum := uint16(c.V[xRegAddr]) + uint16(c.V[yRegAddr])
 	if sum > 255 {
 		c.V[0xF] = 1
@@ -533,7 +531,7 @@ func (c *CPU) drw(xRegAddr, yRegAddr, nibble uint8) {
 	c.Display.Draw()
 }
 
-// Skip next instruction if key with the value of Vx is Pressed.
+// Skip next instruction if key with the value of Vx is pressed.
 // Checks the keyboard, and if the key corresponding to the value of Vx is currently in the down position,
 // PC is increased by 2.
 // Ex9E - SKP Vx
@@ -544,7 +542,7 @@ func (c *CPU) skipIfKeyPressed(addr uint8) {
 	}
 }
 
-// Skip next instruction if key with the value of Vx is not Pressed.
+// Skip next instruction if key with the value of Vx is not pressed.
 // Checks the keyboard, and if the key corresponding to the value of Vx is currently in the up position,
 // PC is increased by 2.
 // ExA1 - SKNP Vx
@@ -556,7 +554,7 @@ func (c *CPU) skipIfKeyNotPressed(addr uint8) {
 }
 
 // Wait for a key press, store the value of the key in Vx.
-// All execution stops until a key is Pressed, then the value of that key is stored in Vx.
+// All execution stops until a key is pressed, then the value of that key is stored in Vx.
 // Fx0A - LD Vx, K
 func (c *CPU) waitKeyPressedAndStoreToRegister(addr uint8) {
 	log.Debug().Msgf("Fx0A - LD Vx, K")

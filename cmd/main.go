@@ -33,39 +33,27 @@ func main() {
 		panic(err)
 	}
 
+	display := chip8.DefaultDisplay()
 	keyboard := chip8.NewKeyboard()
+	audio := chip8.NewAudioController()
 
-	c := chip8.NewCPU(
-		chip8.DefaultDisplay(),
-		keyboard,
-		chip8.NewAudioController(),
-	)
-	// c.LoadProgram("examples/IBM_Logo.ch8")
-	// c.LoadProgram("examples/keypad_test.ch8")
-	// c.LoadProgram("examples/chiptest.ch8")
-	c.LoadProgram("examples/c8games/TETRIS")
-	// c.LoadProgram("examples/delay_timer_test.ch8")
+	c := chip8.NewCPU(display, keyboard, audio)
+	c.LoadProgram("examples/c8games/PONG")
 	go c.Start(ctx)
 
-	running := true
-	for running {
+exit:
+	for {
 		for event := sdl.PollEvent(); event != nil; event = sdl.PollEvent() {
 			switch event.(type) {
 			case *sdl.QuitEvent:
-				println("Quit")
-				running = false
-				break
+				break exit
 			case *sdl.KeyboardEvent:
 				ke := event.(*sdl.KeyboardEvent)
 				var pressed bool
 				if ke.State == sdl.PRESSED {
 					pressed = true
 				}
-				keyEvent := chip8.KeyEvent{
-					Pressed:  pressed,
-					ScanCode: ke.Keysym.Scancode,
-				}
-				keyboard.Accept(keyEvent)
+				keyboard.Accept(chip8.NewKeyEvent(pressed, ke.Keysym.Scancode))
 			}
 		}
 	}

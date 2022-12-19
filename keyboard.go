@@ -27,11 +27,23 @@ var (
 	}
 )
 
+func NewKeyEvent(isPressed bool, scancode sdl.Scancode) KeyEvent {
+	return KeyEvent{
+		pressed:  isPressed,
+		scancode: scancode,
+	}
+}
+
+type KeyEvent struct {
+	pressed  bool
+	scancode sdl.Scancode
+}
+
 func NewKeyboard() *Keyboard {
 	k := &Keyboard{
-		quitCh:  make(chan struct{}),
-		eventCh: make(chan KeyEvent, 10),
-		testCh:  make(chan uint8),
+		quitCh:       make(chan struct{}),
+		acceptCh:     make(chan KeyEvent, 10),
+		pressEventCh: make(chan uint8),
 	}
 	go k.Observe()
 	return k
@@ -39,18 +51,16 @@ func NewKeyboard() *Keyboard {
 
 type Keyboard struct {
 	sync.Mutex
-
-	keyState [16]bool
-
-	quitCh  chan struct{}
-	eventCh chan KeyEvent
-	testCh  chan uint8
+	keyState     [16]bool
+	quitCh       chan struct{}
+	acceptCh     chan KeyEvent
+	pressEventCh chan uint8
 }
 
 func (k *Keyboard) Observe() {
 	for {
 		select {
-		case ev := <-k.eventCh:
+		case ev := <-k.acceptCh:
 			k.process(ev)
 		case <-k.quitCh:
 			return
@@ -58,20 +68,15 @@ func (k *Keyboard) Observe() {
 	}
 }
 
-type KeyEvent struct {
-	Pressed  bool
-	ScanCode sdl.Scancode
-}
-
 func (k *Keyboard) process(ev KeyEvent) {
-	idx, ok := keyMap[ev.ScanCode]
+	idx, ok := keyMap[ev.scancode]
 	if !ok {
 		return
 	}
-	if ev.Pressed {
+	if ev.pressed {
 		k.keyState[idx] = true
 		select {
-		case k.testCh <- idx:
+		case k.pressEventCh <- idx:
 		default:
 		}
 	} else {
@@ -80,7 +85,10 @@ func (k *Keyboard) process(ev KeyEvent) {
 }
 
 func (k *Keyboard) Accept(ev KeyEvent) {
-	k.eventCh <- ev
+	select {
+	case k.acceptCh <- ev:
+	default:
+	}
 }
 
 func (k *Keyboard) IsBeingPressed(key uint8) bool {
@@ -90,5 +98,5 @@ func (k *Keyboard) IsBeingPressed(key uint8) bool {
 }
 
 func (k *Keyboard) PressedEventCh() <-chan uint8 {
-	return k.testCh
+	return k.pressEventCh
 }
