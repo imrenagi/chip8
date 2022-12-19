@@ -1,17 +1,17 @@
 package chip8
 
 import (
-	"github.com/gdamore/tcell/v2"
-	"github.com/gdamore/tcell/v2/encoding"
-	"github.com/mattn/go-runewidth"
-	"github.com/rs/zerolog/log"
+	"fmt"
+	"sync"
+
+	"github.com/veandco/go-sdl2/sdl"
 )
 
-func NewDisplay(drawer Drawer) *Display {
+func DefaultDisplay() *Display {
 	d := &Display{
-		H:      50,
-		W:      100,
-		drawer: drawer,
+		H:      64,
+		W:      128,
+		drawer: NewSDLDisplay(),
 	}
 	d.init()
 	return d
@@ -34,7 +34,6 @@ func (d *Display) init() {
 		row[r] = colums
 	}
 	d.data = row
-
 }
 
 func (d *Display) Clear() {
@@ -61,52 +60,58 @@ func (d *Display) Draw() {
 	d.drawer.Draw()
 }
 
+func (d *Display) Stop() {
+	d.drawer.Stop()
+}
+
 type Drawer interface {
 	Clear()
 	SetPixel(x, y int)
 	Draw()
+	Stop()
 }
 
-func NewTcellDisplay(screen tcell.Screen) *TcellDisplay {
-	encoding.Register()
-	if err := screen.Init(); err != nil {
-		log.Fatal().Msgf("not able to init screen")
+func NewSDLDisplay() *SDLDisplay {
+	window, err := sdl.CreateWindow("chip-8 emulator",
+		sdl.WINDOWPOS_UNDEFINED,
+		sdl.WINDOWPOS_UNDEFINED,
+		1280, 640, sdl.WINDOW_SHOWN)
+	if err != nil {
+		panic(err)
 	}
 
-	defStyle := tcell.StyleDefault.
-		Background(tcell.ColorReset).
-		Foreground(tcell.ColorRed)
-	screen.SetStyle(defStyle)
-	screen.Clear()
-
-	d := &TcellDisplay{
-		screen: screen,
+	surface, err := window.GetSurface()
+	if err != nil {
+		panic(err)
 	}
+	surface.FillRect(nil, 0)
 
-	return d
-}
-
-type TcellDisplay struct {
-	screen tcell.Screen
-}
-
-func (t *TcellDisplay) SetPixel(x, y int) {
-	c := ' '
-	var comb []rune
-	w := runewidth.RuneWidth(c)
-	if w == 0 {
-		comb = []rune{c}
-		c = ' '
-		w = 1
+	return &SDLDisplay{
+		window:  window,
+		surface: surface,
 	}
-	t.screen.SetContent(x, y, c, comb,
-		tcell.StyleDefault.Background(tcell.ColorRed))
 }
 
-func (t *TcellDisplay) Clear() {
-	t.screen.Clear()
+type SDLDisplay struct {
+	sync.Mutex
+	window  *sdl.Window
+	surface *sdl.Surface
 }
 
-func (t *TcellDisplay) Draw() {
-	t.screen.Sync()
+func (s *SDLDisplay) Clear() {
+	s.surface.FillRect(nil, 0)
+}
+
+func (s *SDLDisplay) SetPixel(x, y int) {
+	rect := sdl.Rect{int32(x) * 10, int32(y) * 10, 10, 10}
+	s.surface.FillRect(&rect, 0xffff0000)
+}
+
+func (s *SDLDisplay) Draw() {
+	s.window.UpdateSurface()
+}
+
+func (s *SDLDisplay) Stop() {
+	fmt.Println("stop sdl display")
+	s.window.Destroy()
 }
