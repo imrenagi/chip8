@@ -7,8 +7,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/gdamore/tcell/v2"
 	"github.com/rs/zerolog/log"
+	"github.com/veandco/go-sdl2/sdl"
 )
 
 var (
@@ -38,19 +38,14 @@ const (
 	timerFrequency = 60  // Hz
 )
 
-func NewCPU() *CPU {
+func NewCPU(display *Display, keyboard *Keyboard) *CPU {
 	clockDuration := math.Round(float64(1) / float64(clockFrequency) * 1000)
 	timerDuration := math.Round(float64(1) / float64(timerFrequency) * 1000)
 
-	screen, err := tcell.NewScreen()
-	if err != nil {
-		log.Fatal().Err(err).Msgf("unable to create new tcell screen")
-	}
-
 	cpu := &CPU{
 		PC:       0x200,
-		Display:  NewDisplay(NewTcellDisplay(screen)),
-		Keyboard: NewKeyboard(screen),
+		Display:  display,
+		Keyboard: keyboard,
 		clock:    time.NewTicker(time.Duration(clockDuration) * time.Millisecond),
 		timer:    time.NewTicker(time.Duration(timerDuration) * time.Millisecond),
 	}
@@ -138,6 +133,8 @@ func (c *CPU) Start(ctx context.Context) {
 		case <-ctx.Done():
 			c.clock.Stop()
 			c.timer.Stop()
+			c.Display.Stop()
+			sdl.Quit()
 			log.Warn().Msg("cpu is stopped")
 			return
 		}
@@ -490,7 +487,7 @@ func (c *CPU) rnd(addr uint8, val uint8) {
 // screen and sprites.
 // Dxyn - DRW Vx, Vy, nibble
 func (c *CPU) drw(xRegAddr, yRegAddr, nibble uint8) {
-	log.Debug().Msgf("Dxyn - DRW Vx, Vy, nibble")
+	log.Debug().Msgf("Dxyn - DRW %x, %x, %x", xRegAddr, yRegAddr, nibble)
 	maxX := c.Display.W - 1
 	maxY := c.Display.H - 1
 
@@ -522,7 +519,7 @@ func (c *CPU) drw(xRegAddr, yRegAddr, nibble uint8) {
 	c.Display.Draw()
 }
 
-// Skip next instruction if key with the value of Vx is pressed.
+// Skip next instruction if key with the value of Vx is Pressed.
 // Checks the keyboard, and if the key corresponding to the value of Vx is currently in the down position,
 // PC is increased by 2.
 // Ex9E - SKP Vx
@@ -533,7 +530,7 @@ func (c *CPU) skipIfKeyPressed(addr uint8) {
 	}
 }
 
-// Skip next instruction if key with the value of Vx is not pressed.
+// Skip next instruction if key with the value of Vx is not Pressed.
 // Checks the keyboard, and if the key corresponding to the value of Vx is currently in the up position,
 // PC is increased by 2.
 // ExA1 - SKNP Vx
@@ -545,7 +542,7 @@ func (c *CPU) skipIfKeyNotPressed(addr uint8) {
 }
 
 // Wait for a key press, store the value of the key in Vx.
-// All execution stops until a key is pressed, then the value of that key is stored in Vx.
+// All execution stops until a key is Pressed, then the value of that key is stored in Vx.
 // Fx0A - LD Vx, K
 func (c *CPU) waitKeyPressedAndStoreToRegister(addr uint8) {
 	log.Debug().Msgf("Fx0A - LD Vx, K")

@@ -9,16 +9,12 @@ import (
 	"github.com/imrenagi/chip8"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+	"github.com/veandco/go-sdl2/sdl"
 )
 
 func main() {
-	zerolog.SetGlobalLevel(zerolog.DebugLevel)
-	logFile, err := os.OpenFile("chip8.log", os.O_CREATE|os.O_RDWR, 0777)
-	if err != nil {
-		log.Fatal().Err(err).Msgf("unable to create log file")
-	}
-	defer logFile.Close()
-	log.Logger = log.Output(zerolog.ConsoleWriter{Out: logFile})
+	zerolog.SetGlobalLevel(zerolog.InfoLevel)
+	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stdout})
 
 	ctx := context.Background()
 	ctx, cancel := context.WithCancel(ctx)
@@ -33,15 +29,41 @@ func main() {
 		cancel()
 	}()
 
-	c := chip8.NewCPU()
-	// c.LoadProgram("examples/IBM_Logo.ch8")
-	c.LoadProgram("examples/c8games/PONG")
-	c.Start(ctx)
+	if err := sdl.Init(sdl.INIT_EVERYTHING); err != nil {
+		panic(err)
+	}
 
-	// c.DecodeAndExecute(0x60FF)
-	// c.DecodeAndExecute(0x6101)
-	// fmt.Println(c.V)
-	// c.DecodeAndExecute(0x8014)
-	// fmt.Println(c.V)
-	// <-time.After(5 * time.Second)
+	keyboard := chip8.NewKeyboard()
+
+	c := chip8.NewCPU(
+		chip8.DefaultDisplay(),
+		keyboard,
+	)
+	// c.LoadProgram("examples/IBM_Logo.ch8")
+	// c.LoadProgram("examples/keypad_test.ch8")
+	c.LoadProgram("examples/c8games/TETRIS")
+	go c.Start(ctx)
+
+	running := true
+	for running {
+		for event := sdl.PollEvent(); event != nil; event = sdl.PollEvent() {
+			switch event.(type) {
+			case *sdl.QuitEvent:
+				println("Quit")
+				running = false
+				break
+			case *sdl.KeyboardEvent:
+				ke := event.(*sdl.KeyboardEvent)
+				var pressed bool
+				if ke.State == sdl.PRESSED {
+					pressed = true
+				}
+				keyEvent := chip8.KeyEvent{
+					Pressed:  pressed,
+					ScanCode: ke.Keysym.Scancode,
+				}
+				keyboard.Accept(keyEvent)
+			}
+		}
+	}
 }
