@@ -1,19 +1,17 @@
 package chip8
 
 import (
-	"fmt"
 	"sync"
 
 	"github.com/veandco/go-sdl2/sdl"
 )
 
-func DefaultDisplay() *Display {
-	d := &Display{
+func DefaultDisplay() Display {
+	d := Display{
 		H:      64,
 		W:      128,
 		drawer: NewSDLDisplay(),
 	}
-	d.init()
 	return d
 }
 
@@ -21,19 +19,7 @@ type Display struct {
 	drawer Drawer
 
 	H, W uint8
-	data [][]uint8
-}
-
-func (d *Display) init() {
-	row := make([][]uint8, d.H)
-	for r := 0; r < int(d.H); r++ {
-		colums := make([]uint8, d.W)
-		for c := 0; c < int(d.W); c++ {
-			colums[c] = 0
-		}
-		row[r] = colums
-	}
-	d.data = row
+	data [8192]uint8
 }
 
 func (d *Display) Clear() {
@@ -41,20 +27,22 @@ func (d *Display) Clear() {
 }
 
 func (d *Display) SetPixel(x, y uint8, val uint8) {
-	d.data[y][x] = val
+	t := uint16(y)*uint16(d.W) + uint16(x)
+	d.data[t] = val
 }
 
 func (d *Display) GetPixel(x, y uint8) uint8 {
-	return d.data[y][x]
+	t := uint16(y)*uint16(d.W) + uint16(x)
+	return d.data[t]
 }
 
 func (d *Display) Draw() {
 	d.drawer.Clear()
-	for y, r := range d.data {
-		for x, c := range r {
-			if c > 0 {
-				d.drawer.SetPixel(x, y)
-			}
+	for i, val := range d.data {
+		y := i / int(d.W) // 4 / 3 = 1
+		x := i % int(d.W) // 4 % 3 = 2
+		if val > 0 {
+			d.drawer.SetPixel(x, y)
 		}
 	}
 	d.drawer.Draw()
@@ -112,6 +100,5 @@ func (s *SDLDisplay) Draw() {
 }
 
 func (s *SDLDisplay) Stop() {
-	fmt.Println("stop sdl display")
 	s.window.Destroy()
 }
